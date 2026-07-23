@@ -1,0 +1,61 @@
+# Local development stack for the URL shortener.
+# Brings up the two stateful dependencies the app needs: Postgres (persistent
+# storage for shortened URLs) and Redis (caching / fast lookups). The app
+# itself runs outside this file (e.g. `npm run dev`) and connects to these
+# over the ports published below.
+services:
+  # Primary datastore. Holds the URL mappings (and whatever else the app
+  # persists). Data survives container restarts via the `pgdata` volume.
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      # These three vars are read by the official Postgres image on first
+      # boot to create the database/user/password. Only take effect when
+      # the data directory is empty (i.e. a fresh `pgdata` volume) — editing
+      # them later won't change an already-initialized database.
+      POSTGRES_DB: shortener
+      POSTGRES_USER: appuser
+      POSTGRES_PASSWORD: apppass
+    ports:
+      # host:container — exposes Postgres on localhost:5432 so local tools
+      # (psql, DBeaver, the app running outside Docker) can connect directly.
+      - "5432:5432"
+    volumes:
+      # Named volume so data persists across `docker compose down` / restarts
+      # (only removed if you run `docker compose down -v`).
+      - pgdata:/var/lib/postgresql/data
+      # Runs once, only on first initialization of an empty data directory —
+      # seeds the schema/tables. Mounted read-only so the container can't
+      # modify our source file.
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      # Lets other services (and `docker compose up --wait`) know when
+      # Postgres is actually ready to accept queries, not just that the
+      # container process has started.
+      test: ["CMD-SHELL", "pg_isready -U appuser -d shortener"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # In-memory cache, e.g. for fast slug -> URL lookups without hitting
+  # Postgres on every redirect. Data here is ephemeral (no volume) —
+  # it's a cache, not a source of truth.
+  redis:
+    image: redis:7-alpine
+    ports:
+      # Exposes Redis on localhost:6379 for local debugging (redis-cli, etc).
+      - "6379:6379"
+    healthcheck:
+      # `redis-cli ping` should reply PONG once the server is accepting
+      # connections.
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+# Top-level volume declarations. Must live here (as a sibling of `services`),
+# not nested inside it — a `volumes:` block under a service only mounts
+# volumes into that one container, whereas this declares a named volume
+# managed by Docker that services can reference by name (see `pgdata` above).
+volumes:
+  pgdata:
