@@ -36,8 +36,8 @@ app.post("/shorten", async (req, res) => {
 });
 
 app.get("/stats", async (req, res) => {
-  const hits = (await redis.get("stat:hits")) || "0";
-  const misses = (await redis.get("stat:misses")) || "0";
+  const hits = (await redis.get("stats:hits")) || "0";
+  const misses = (await redis.get("stats:misses")) || "0";
 
   res.json({
     hits: parseInt(hits),
@@ -71,7 +71,6 @@ app.get("/:code", async (req, res) => {
   }
 
   const originalUrl = result.rows[0].original_url;
-  console.log("debug: result ->", result);
   await redis.setex(`shorturl:${code}`, CACHE_TTL, originalUrl);
   await redis.incr("stats:misses");
 
